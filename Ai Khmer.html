@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="km">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>កម្មវិធីបណ្ដាញប្រើ AI ងាយស្រួល</title>
+    <!-- ប្រើ Tailwind CSS សម្រាប់រចនាឱ្យមានភាពស្រស់ស្អាត និងឆ្លើយតប -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Khmer+Battambang:wght@100;300;400;700&display=swap');
+        body {
+            font-family: 'Khmer Battambang', sans-serif;
+            background-color: #f0f4f8;
+        }
+        .ai-container {
+            min-height: 100vh;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 p-4">
+
+    <div class="ai-container max-w-2xl mx-auto py-8">
+        
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-indigo-700 mb-2">សាកសួរ AI របស់ Gemini</h1>
+            <p class="text-gray-600">ប្រើប្រាស់ Ai ដែលបង្កើតឡើងដោយនិសិត្សឈ្មោះ អ៊ុំ សំអូន</p>
+        </header>
+
+        <main class="bg-white p-6 md:p-8 rounded-xl shadow-2xl">
+            <!-- តំបន់បញ្ចូលសំណួរ -->
+            <div class="mb-6">
+                <label for="promptInput" class="block text-lg font-medium text-gray-700 mb-2">
+                    វាយសំណួររបស់អ្នក (ជាភាសាខ្មែរ ឬអង់គ្លេស):
+                </label>
+                <textarea id="promptInput" 
+                          rows="4" 
+                          class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out shadow-sm"
+                          placeholder="ឧទាហរណ៍៖ តើប្រទេសកម្ពុជាមានអ្វីគួរឱ្យចាប់អារម្មណ៍ខ្លះ?"></textarea>
+            </div>
+
+            <!-- ប៊ូតុងដើម្បីចាប់ផ្តើមការសួរ AI -->
+            <div class="flex justify-center mb-8">
+                <button id="askButton"
+                        class="px-8 py-3 bg-indigo-600 text-white font-semibold rounded-full shadow-lg hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50 transition duration-300 transform hover:scale-105 disabled:opacity-50"
+                        onclick="generateResponse()">
+                    <span id="buttonText">សួរ AI</span>
+                </button>
+            </div>
+
+            <!-- តំបន់បង្ហាញលទ្ធផល -->
+            <div>
+                <h2 class="text-2xl font-semibold text-gray-800 border-b pb-2 mb-4">លទ្ធផលពី AI</h2>
+                <div id="resultOutput" 
+                     class="min-h-[150px] bg-gray-50 p-4 rounded-lg border border-dashed border-gray-300 text-gray-700 whitespace-pre-wrap">
+                    ចម្លើយនឹងបង្ហាញនៅទីនេះ។
+                </div>
+            </div>
+        </main>
+        
+        <!-- តំបន់សារកំហុស -->
+        <div id="errorMessage" class="mt-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg hidden">
+            <!-- សារកំហុសនឹងបង្ហាញនៅទីនេះ -->
+        </div>
+
+    </div>
+
+    <script type="module">
+        // ព័ត៌មានមូលដ្ឋានសម្រាប់ការប្រើប្រាស់ API
+        const MODEL_NAME = "gemini-2.5-flash-preview-09-2025";
+        // កំណត់ API Key ទុកជាទទេ ព្រោះ Canvas នឹងបញ្ចូលដោយស្វ័យប្រវត្តិ
+        const API_KEY = ""; 
+        const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${API_KEY}`;
+        
+        // ធាតុ DOM
+        const promptInput = document.getElementById('promptInput');
+        const askButton = document.getElementById('askButton');
+        const buttonText = document.getElementById('buttonText');
+        const resultOutput = document.getElementById('resultOutput');
+        const errorMessageDiv = document.getElementById('errorMessage');
+
+        /**
+         * បំប្លែង Base64 ទៅជា ArrayBuffer សម្រាប់ TTS (មិនប្រើសម្រាប់ Text)
+         * សម្រាប់ Text Generation យើងមិនត្រូវការ function នេះទេ។
+         */
+
+        /**
+         * ហៅទៅកាន់ Gemini API ដើម្បីបង្កើតខ្លឹមសារ
+         * @param {string} prompt សំណួររបស់អ្នកប្រើប្រាស់
+         * @param {number} retryCount ចំនួនដងនៃការប៉ុនប៉ងឡើងវិញ (សម្រាប់ Exponential Backoff)
+         */
+        async function fetchGeminiResponse(prompt, retryCount = 0) {
+            // កំណត់ការកំណត់រចនាសម្ព័ន្ធសម្រាប់ AI
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                systemInstruction: {
+                    parts: [{ text: "អ្នកគឺជាជំនួយការដ៏រួសរាយរាក់ទាក់ ដែលឆ្លើយសំណួរបានយ៉ាងច្បាស់លាស់។ សូមឆ្លើយដោយប្រើភាសាខ្មែរ ឬភាសាដែលអ្នកប្រើប្រាស់សួរ។" }]
+                }
+            };
+            
+            const maxRetries = 3;
+            const delay = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (!response.ok) {
+                    // ព្យាយាមម្តងទៀតជាមួយ Exponential Backoff ប្រសិនបើមានកំហុស 5xx ឬ 429
+                    if (response.status === 429 || (response.status >= 500 && response.status < 600)) {
+                        if (retryCount < maxRetries) {
+                            console.warn(`API Rate Limit ឬ Server Error. ព្យាយាមម្តងទៀតក្នុង ${delay / 1000} វិនាទី...`);
+                            await new Promise(resolve => setTimeout(resolve, delay));
+                            return fetchGeminiResponse(prompt, retryCount + 1);
+                        }
+                    }
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                
+                const generatedText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+                if (!generatedText) {
+                    throw new Error("AI មិនបានផ្តល់ចម្លើយទេ។");
+                }
+
+                return generatedText;
+
+            } catch (error) {
+                console.error("កំហុសក្នុងការហៅ API:", error);
+                throw new Error("មានបញ្ហាបច្ចេកទេសក្នុងការភ្ជាប់ទៅ AI។");
+            }
+        }
+
+        /**
+         * មុខងារមេសម្រាប់ដំណើរការសំណួរ
+         */
+        async function generateResponse() {
+            const prompt = promptInput.value.trim();
+            if (prompt === "") {
+                displayError("សូមវាយបញ្ចូលសំណួររបស់អ្នកជាមុនសិន!");
+                return;
+            }
+
+            // កំណត់ស្ថានភាព Loading UI
+            askButton.disabled = true;
+            buttonText.textContent = "កំពុងដំណើរការ...";
+            resultOutput.innerHTML = '<div class="text-center py-4 text-indigo-500 font-medium">កំពុងទាក់ទង AI...</div>';
+            hideError();
+
+            try {
+                // ហៅទៅ API
+                const responseText = await fetchGeminiResponse(prompt);
+                
+                // បង្ហាញលទ្ធផល (បម្លែង Markdowns ទៅជា HTML សម្រាប់បង្ហាញត្រឹមត្រូវ)
+                resultOutput.innerHTML = formatAsMarkdown(responseText);
+
+            } catch (error) {
+                displayError(`មានបញ្ហាកើតឡើង៖ ${error.message}`);
+                resultOutput.textContent = "មិនអាចទទួលបានចម្លើយ។";
+            } finally {
+                // កំណត់ស្ថានភាព UI ទៅដើមវិញ
+                askButton.disabled = false;
+                buttonText.textContent = "សួរ AI";
+            }
+        }
+
+        /**
+         * មុខងារដើម្បីបង្ហាញសារកំហុស
+         * @param {string} message សារកំហុសដែលត្រូវបង្ហាញ
+         */
+        function displayError(message) {
+            errorMessageDiv.textContent = message;
+            errorMessageDiv.classList.remove('hidden');
+        }
+
+        /**
+         * មុខងារដើម្បីលាក់សារកំហុស
+         */
+        function hideError() {
+            errorMessageDiv.classList.add('hidden');
+            errorMessageDiv.textContent = '';
+        }
+
+        /**
+         * មុខងារបំប្លែង Markdown មូលដ្ឋាន (ដូចជា **bold**) ទៅជា HTML
+         * @param {string} text អត្ថបទដែលទទួលបានពី AI
+         * @returns {string} អត្ថបទក្នុងទម្រង់ HTML
+         */
+        function formatAsMarkdown(text) {
+            // បំប្លែង bold (**)
+            let htmlText = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            // បំប្លែង lists (ប្រើក្បួនដោះស្រាយសាមញ្ញសម្រាប់លទ្ធផលដែលបានរៀបចំទុកជាមុន)
+            htmlText = htmlText.replace(/^- (.*)$/gm, '<li class="list-disc ml-5">$1</li>');
+            if (htmlText.includes('<li>')) {
+                htmlText = `<ul>${htmlText}</ul>`;
+                // ដក whitespace ចេញពីជុំវិញ <ul>
+                htmlText = htmlText.replace(/<\/ul>\s*<ul>/g, ' '); 
+            }
+            // ជំនួស Newlines សម្រាប់ភាពងាយស្រួលនៃការអាន
+            htmlText = htmlText.replace(/\n/g, '<br>');
+            return htmlText;
+        }
+
+        // ភ្ជាប់មុខងារ generateResponse ទៅប៊ូតុងសួរ AI
+        document.getElementById('askButton').addEventListener('click', generateResponse);
+        
+        // លុបកំហុសនៅពេលចាប់ផ្ដើម
+        hideError();
+
+    </script>
+</body>
+</html>
+
